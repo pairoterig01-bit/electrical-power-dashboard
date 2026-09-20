@@ -125,6 +125,7 @@ def load_data(spreadsheet_id: str, start_month: str):
         if col in data.columns:
             data[col] = pd.to_numeric(data[col], errors="coerce")
     data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp")
+    data = data.drop_duplicates(subset="Timestamp")  # กันข้อมูลซ้ำข้ามแท็บ
     return data, loaded, skipped, now_th()
 
 

@@ -57,6 +57,11 @@ header[data-testid="stHeader"]{background:transparent;}
 .mini .lbl{font-size:.68rem;opacity:.65;}
 .mini .val{font-size:1rem;font-weight:600;}
 div[data-testid="stTabs"] button{padding:6px 10px;}
+div[data-testid="stHorizontalBlock"]:has(.hdr){flex-wrap:nowrap !important;align-items:center;gap:.5rem;margin-bottom:2px;}
+div[data-testid="stHorizontalBlock"]:has(.hdr) > div{min-width:0 !important;}
+div[data-testid="stHorizontalBlock"]:has(.hdr) > div:first-child{flex:1 1 auto !important;width:auto !important;}
+div[data-testid="stHorizontalBlock"]:has(.hdr) > div:last-child{flex:0 0 auto !important;width:auto !important;}
+div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.2rem .7rem;min-height:0;}
 </style>
 """,
     unsafe_allow_html=True,
@@ -186,9 +191,15 @@ def mini_cards(items):
 
 
 # ----------------------------- หน้าจอหลัก -----------------------------
-data, loaded, skipped = load_data(SPREADSHEET_ID, START_MONTH)
+h_left, h_right = st.columns([5, 1], vertical_alignment="center")
+with h_left:
+    st.markdown('<span class="hdr"></span><p class="ttl">⚡ Power Monitor</p>', unsafe_allow_html=True)
+with h_right:
+    if st.button("🔄", key="refresh", help="รีเฟรชข้อมูล"):
+        st.cache_data.clear()
+        st.rerun()
 
-st.markdown('<p class="ttl">⚡ Power Monitor</p>', unsafe_allow_html=True)
+data, loaded, skipped = load_data(SPREADSHEET_ID, START_MONTH)
 
 if data is None or data.empty:
     st.error(
@@ -247,9 +258,6 @@ for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
 
 # ส่วนเพิ่มเติม
 with st.expander("เพิ่มเติม"):
-    if st.button("รีเฟรชข้อมูล"):
-        st.cache_data.clear()
-        st.rerun()
     st.caption("ข้อมูลอัปเดตอัตโนมัติทุก 5 นาที")
     st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
     if skipped:

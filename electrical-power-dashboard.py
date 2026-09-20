@@ -42,7 +42,7 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-.block-container{padding:1.2rem 1rem 3rem;max-width:720px;}
+.block-container{padding:4rem 1rem 3rem;max-width:720px;}
 header[data-testid="stHeader"]{background:transparent;}
 #MainMenu, footer{visibility:hidden;}
 .ttl{font-size:1.35rem;font-weight:700;margin:0;}
@@ -205,6 +205,7 @@ with h_left:
 with h_right:
     if st.button("🔄", key="refresh", help="รีเฟรชข้อมูล"):
         st.cache_data.clear()
+        st.session_state["just_refreshed"] = True
         st.rerun()
 
 data, loaded, skipped, fetched_at = load_data(SPREADSHEET_ID, START_MONTH)
@@ -217,6 +218,8 @@ if data is None or data.empty:
     st.stop()
 
 latest = data.iloc[-1]
+if st.session_state.pop("just_refreshed", False):
+    st.toast(f"รีเฟรชแล้ว · ข้อมูลล่าสุด {latest['Timestamp']:%H:%M:%S}", icon="✅")
 st.markdown(
     f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}'
     f' · โหลดเมื่อ {fetched_at:%H:%M:%S}</p>',

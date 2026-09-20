@@ -107,7 +107,7 @@ def fetch_sheet(spreadsheet_id: str, sheet_name: str):
     return df
 
 
-@st.cache_data(ttl=300, show_spinner="กำลังโหลดข้อมูล...")
+@st.cache_data(ttl=120, show_spinner=False)
 def load_data(spreadsheet_id: str, start_month: str):
     frames, loaded, skipped = [], [], []
     for month in get_month_list(start_month):
@@ -208,70 +208,75 @@ with h_right:
         st.session_state["just_refreshed"] = True
         st.rerun()
 
-data, loaded, skipped, fetched_at = load_data(SPREADSHEET_ID, START_MONTH)
+@st.fragment(run_every=300)  # รีรันส่วนนี้อัตโนมัติทุก 5 นาที (300 วินาที)
+def dashboard():
+    data, loaded, skipped, fetched_at = load_data(SPREADSHEET_ID, START_MONTH)
 
-if data is None or data.empty:
-    st.error(
-        "ไม่พบข้อมูล ตรวจสอบว่า SPREADSHEET_ID ถูกต้อง, ชื่อแท็บเป็น yyyy-MM "
-        "และตั้งค่าแชร์เป็น 'Anyone with the link – Viewer'"
-    )
-    st.stop()
-
-latest = data.iloc[-1]
-if st.session_state.pop("just_refreshed", False):
-    st.toast(f"รีเฟรชแล้ว · ข้อมูลล่าสุด {latest['Timestamp']:%H:%M:%S}", icon="✅")
-st.markdown(
-    f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}'
-    f' · โหลดเมื่อ {fetched_at:%H:%M:%S}</p>',
-    unsafe_allow_html=True,
-)
-
-# การ์ดค่าล่าสุด 2x2
-cards = ""
-for col, label, _tab, unit, color, dec in METRICS:
-    v = latest[col] if col in data.columns else float("nan")
-    cards += (
-        f'<div class="card" style="--c:{color}"><div class="lbl">{label}</div>'
-        f'<div class="val">{fmt(v, dec)}<small>{unit}</small></div></div>'
-    )
-st.markdown(f'<div class="grid g2">{cards}</div>', unsafe_allow_html=True)
-
-# เลือกช่วงเวลา
-choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
-view = filter_range(data, choice)
-
-# แท็บกราฟ (1 แท็บ = 1 กราฟ)
-tabs = st.tabs([m[2] for m in METRICS])
-for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
-    with tab:
-        if col not in view.columns or view[col].dropna().empty:
-            st.info("ไม่มีข้อมูลในช่วงนี้")
-            continue
-        is_energy = col == "Energy (kWh)"
-        st.plotly_chart(
-            make_chart(view, col, color, unit, dec, fill=is_energy),
-            width="stretch",
-            config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
+    if data is None or data.empty:
+        st.error(
+            "ไม่พบข้อมูล ตรวจสอบว่า SPREADSHEET_ID ถูกต้อง, ชื่อแท็บเป็น yyyy-MM "
+            "และตั้งค่าแชร์เป็น 'Anyone with the link – Viewer'"
         )
-        s = view[col].dropna()
-        if is_energy:
-            items = [
-                ("เริ่มช่วงนี้", f"{fmt(s.iloc[0], dec)} {unit}"),
-                ("ล่าสุด", f"{fmt(s.iloc[-1], dec)} {unit}"),
-                ("ใช้ไป", f"+{fmt(s.iloc[-1] - s.iloc[0], dec)} {unit}"),
-            ]
-        else:
-            items = [
-                ("ต่ำสุด", f"{fmt(s.min(), dec)} {unit}"),
-                ("เฉลี่ย", f"{fmt(s.mean(), dec)} {unit}"),
-                ("สูงสุด", f"{fmt(s.max(), dec)} {unit}"),
-            ]
-        st.markdown(mini_cards(items), unsafe_allow_html=True)
+        return
 
-# ส่วนเพิ่มเติม
-with st.expander("เพิ่มเติม"):
-    st.caption("ข้อมูลอัปเดตอัตโนมัติทุก 5 นาที")
-    st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
-    if skipped:
-        st.write("**เดือนที่ข้าม:**", ", ".join(skipped))
-    st.dataframe(view.sort_values("Timestamp", ascending=False), width="stretch")
+    latest = data.iloc[-1]
+    if st.session_state.pop("just_refreshed", False):
+        st.toast(f"รีเฟรชแล้ว · ข้อมูลล่าสุด {latest['Timestamp']:%H:%M:%S}", icon="✅")
+    st.markdown(
+        f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}'
+        f' · โหลดเมื่อ {fetched_at:%H:%M:%S}</p>',
+        unsafe_allow_html=True,
+    )
+
+    # การ์ดค่าล่าสุด 2x2
+    cards = ""
+    for col, label, _tab, unit, color, dec in METRICS:
+        v = latest[col] if col in data.columns else float("nan")
+        cards += (
+            f'<div class="card" style="--c:{color}"><div class="lbl">{label}</div>'
+            f'<div class="val">{fmt(v, dec)}<small>{unit}</small></div></div>'
+        )
+    st.markdown(f'<div class="grid g2">{cards}</div>', unsafe_allow_html=True)
+
+    # เลือกช่วงเวลา
+    choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
+    view = filter_range(data, choice)
+
+    # แท็บกราฟ (1 แท็บ = 1 กราฟ)
+    tabs = st.tabs([m[2] for m in METRICS])
+    for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
+        with tab:
+            if col not in view.columns or view[col].dropna().empty:
+                st.info("ไม่มีข้อมูลในช่วงนี้")
+                continue
+            is_energy = col == "Energy (kWh)"
+            st.plotly_chart(
+                make_chart(view, col, color, unit, dec, fill=is_energy),
+                width="stretch",
+                config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
+            )
+            s = view[col].dropna()
+            if is_energy:
+                items = [
+                    ("เริ่มช่วงนี้", f"{fmt(s.iloc[0], dec)} {unit}"),
+                    ("ล่าสุด", f"{fmt(s.iloc[-1], dec)} {unit}"),
+                    ("ใช้ไป", f"+{fmt(s.iloc[-1] - s.iloc[0], dec)} {unit}"),
+                ]
+            else:
+                items = [
+                    ("ต่ำสุด", f"{fmt(s.min(), dec)} {unit}"),
+                    ("เฉลี่ย", f"{fmt(s.mean(), dec)} {unit}"),
+                    ("สูงสุด", f"{fmt(s.max(), dec)} {unit}"),
+                ]
+            st.markdown(mini_cards(items), unsafe_allow_html=True)
+
+    # ส่วนเพิ่มเติม
+    with st.expander("เพิ่มเติม"):
+        st.caption("รีเฟรชอัตโนมัติทุก 5 นาที (ขณะเปิดหน้านี้ค้างไว้)")
+        st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
+        if skipped:
+            st.write("**เดือนที่ข้าม:**", ", ".join(skipped))
+        st.dataframe(view.sort_values("Timestamp", ascending=False), width="stretch")
+
+
+dashboard()

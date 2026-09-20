@@ -64,16 +64,22 @@ div[data-testid="stHorizontalBlock"]:has(.hdr) > div:first-child{flex:1 1 auto !
 div[data-testid="stHorizontalBlock"]:has(.hdr) > div:last-child{flex:0 0 auto !important;width:auto !important;}
 div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.2rem .7rem;min-height:0;}
 @media (max-width:480px){
-.block-container{padding:3.6rem .75rem 2.5rem;}
-div[data-testid="stRadio"] div[role="radiogroup"]{display:grid !important;grid-template-columns:repeat(3,1fr);gap:4px 6px;}
-.grid{gap:8px;}
-.card{padding:8px 10px;}
-.card .val{font-size:1.4rem;}
-.mini{padding:6px 4px;}
-.mini .lbl{font-size:.64rem;}
-.mini .val{font-size:.85rem;white-space:nowrap;}
-div[data-testid="stTabs"] button{padding:4px 6px;}
-div[data-testid="stTabs"] button p{font-size:.82rem;}
+.block-container{padding:3.6rem .8rem 2.5rem;}
+.ttl{font-size:1.6rem;}
+.sub{font-size:.9rem;}
+.grid{gap:10px;}
+.card{padding:12px 14px;}
+.card .lbl{font-size:.9rem;}
+.card .val{font-size:2.1rem;}
+.card .val small{font-size:1rem;}
+.mini{padding:10px 4px;}
+.mini .lbl{font-size:.8rem;}
+.mini .val{font-size:1.05rem;white-space:nowrap;}
+div[data-testid="stRadio"] div[role="radiogroup"]{display:grid !important;grid-template-columns:repeat(3,1fr);gap:8px 6px;}
+div[data-testid="stRadio"] label p{font-size:1.05rem;}
+div[data-testid="stTabs"] button{padding:8px 8px;}
+div[data-testid="stTabs"] button p{font-size:1.02rem;}
+div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.4rem .9rem;font-size:1.2rem;}
 }
 </style>
 """,
@@ -206,14 +212,14 @@ def make_chart(df, col, color, unit, decimals, fill=False):
         yrange = [y.min() - pad, y.max() + pad]
 
     fig.update_layout(
-        height=280,
+        height=340,
         margin=dict(l=4, r=8, t=8, b=8),
         showlegend=False,
         hovermode="x",
         dragmode=False,  # ไม่ให้นิ้วลากซูมกราฟ เลื่อนหน้าจอได้ปกติ
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(size=11),
+        font=dict(size=13),
     )
     fig.update_xaxes(showgrid=False, tickformat=tick_fmt, nticks=5, fixedrange=True)
     fig.update_yaxes(

@@ -1,13 +1,13 @@
 """
-app.py - Electrical Power Monitoring Dashboard (Streamlit)
+electrical-power-dashboard.py - Electrical Power Monitor (Streamlit, mobile-first)
 ดึงข้อมูลจาก Google Sheet "Electrical power check" (แท็บรายเดือน yyyy-MM)
-แล้วแสดงกราฟ Voltage / Current / Power / Energy บนเว็บ
+แสดงผลแบบกระชับสำหรับมือถือ: การ์ดค่าล่าสุด + แท็บกราฟ
 
-รันในเครื่อง:  streamlit run app.py
+รันในเครื่อง:  streamlit run electrical-power-dashboard.py
 """
 
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 import pandas as pd
@@ -15,16 +15,55 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from dateutil.relativedelta import relativedelta
-from plotly.subplots import make_subplots
 
 # ===================== แก้ค่าตรงนี้ =====================
 SPREADSHEET_ID = "1tQpqS3BGkWxzOiRel8xqEu_O1A9Ej7KOjnSNmGUur60"  # เฉพาะ ID ไม่ใช่ URL เต็ม
 START_MONTH = "2026-09"  # เดือนแรกที่เริ่มเก็บข้อมูล (yyyy-MM)
 # =========================================================
 
-st.set_page_config(page_title="Electrical Power Dashboard", layout="wide")
+# (คอลัมน์ในชีต, ชื่อการ์ด, ชื่อแท็บ, หน่วย, สี, ทศนิยม)
+METRICS = [
+    ("Voltage(V)", "แรงดัน", "⚡ แรงดัน", "V", "#3B82F6", 1),
+    ("Current(A)", "กระแส", "🔌 กระแส", "A", "#F59E0B", 2),
+    ("Power(W)", "กำลังไฟ", "🔥 กำลัง", "W", "#EF4444", 1),
+    ("Energy (kWh)", "พลังงานสะสม", "🔋 พลังงาน", "kWh", "#10B981", 3),
+]
+
+RANGES = ["1 ชม.", "วันนี้", "7 วัน", "ทั้งหมด"]
+
+st.set_page_config(
+    page_title="Power Monitor",
+    page_icon="⚡",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+st.markdown(
+    """
+<style>
+.block-container{padding:1.2rem 1rem 3rem;max-width:720px;}
+header[data-testid="stHeader"]{background:transparent;}
+#MainMenu, footer{visibility:hidden;}
+.ttl{font-size:1.35rem;font-weight:700;margin:0;}
+.sub{font-size:.78rem;opacity:.65;margin:2px 0 12px;}
+.grid{display:grid;gap:10px;margin-bottom:10px;}
+.g2{grid-template-columns:1fr 1fr;}
+.g3{grid-template-columns:1fr 1fr 1fr;}
+.card{background:rgba(128,128,128,.10);border-radius:14px;padding:10px 14px;border-left:4px solid var(--c);}
+.card .lbl{font-size:.72rem;opacity:.7;}
+.card .val{font-size:1.65rem;font-weight:700;line-height:1.25;}
+.card .val small{font-size:.8rem;font-weight:500;opacity:.7;margin-left:3px;}
+.mini{background:rgba(128,128,128,.08);border-radius:12px;padding:8px 10px;text-align:center;}
+.mini .lbl{font-size:.68rem;opacity:.65;}
+.mini .val{font-size:1rem;font-weight:600;}
+div[data-testid="stTabs"] button{padding:6px 10px;}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 
+# ----------------------------- ดึงข้อมูล -----------------------------
 def get_month_list(start_month: str):
     cursor = datetime.strptime(start_month, "%Y-%m")
     now = datetime.now()
@@ -55,7 +94,7 @@ def fetch_sheet(spreadsheet_id: str, sheet_name: str):
     return df
 
 
-@st.cache_data(ttl=300, show_spinner="กำลังดึงข้อมูลจาก Google Sheet...")
+@st.cache_data(ttl=300, show_spinner="กำลังโหลดข้อมูล...")
 def load_data(spreadsheet_id: str, start_month: str):
     frames, loaded, skipped = [], [], []
     for month in get_month_list(start_month):
@@ -69,59 +108,87 @@ def load_data(spreadsheet_id: str, start_month: str):
         return None, loaded, skipped
     data = pd.concat(frames, ignore_index=True)
     data["Timestamp"] = pd.to_datetime(data["Timestamp"], dayfirst=True, errors="coerce")
+    for col, *_ in METRICS:
+        if col in data.columns:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
     data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp")
     return data, loaded, skipped
 
 
-def build_figure(data: pd.DataFrame, interactive: bool = False):
-    fig = make_subplots(
-        rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04,
-        subplot_titles=(
-            "แรงดันไฟฟ้า (Voltage, V)",
-            "กระแสไฟฟ้า (Current, A)",
-            "กำลังไฟฟ้า (Power, W)",
-            "พลังงานไฟฟ้าสะสม (Energy, kWh)",
-        ),
+# ----------------------------- ตัวช่วยแสดงผล -----------------------------
+def fmt(value, decimals):
+    return "-" if pd.isna(value) else f"{value:,.{decimals}f}"
+
+
+def hex_to_rgba(hex_color: str, alpha: float):
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def filter_range(data: pd.DataFrame, choice: str):
+    latest = data["Timestamp"].max()
+    if choice == "1 ชม.":
+        out = data[data["Timestamp"] >= latest - timedelta(hours=1)]
+    elif choice == "วันนี้":
+        out = data[data["Timestamp"].dt.date == latest.date()]
+    elif choice == "7 วัน":
+        out = data[data["Timestamp"] >= latest - timedelta(days=7)]
+    else:
+        out = data
+    return out if not out.empty else data
+
+
+def make_chart(df, col, color, unit, decimals, fill=False):
+    y = df[col]
+    span = df["Timestamp"].max() - df["Timestamp"].min()
+    tick_fmt = "%H:%M" if span <= timedelta(days=2) else "%d/%m"
+
+    fig = go.Figure(
+        go.Scatter(
+            x=df["Timestamp"], y=y, mode="lines",
+            line=dict(color=color, width=2.5),
+            fill="tozeroy" if fill else None,
+            fillcolor=hex_to_rgba(color, 0.25) if fill else None,
+            hovertemplate=f"%{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",
+        )
     )
-    specs = [
-        ("Voltage(V)", "Voltage (V)", "#3B82F6", None),
-        ("Current(A)", "Current (A)", "#F59E0B", None),
-        ("Power(W)", "Power (W)", "#EF4444", None),
-        ("Energy (kWh)", "Energy (kWh)", "#10B981", "tozeroy"),
-    ]
-    for i, (col, name, color, fill) in enumerate(specs, start=1):
-        if col in data.columns:
-            fig.add_trace(
-                go.Scatter(x=data["Timestamp"], y=data[col], name=name,
-                           line=dict(color=color), fill=fill),
-                row=i, col=1,
-            )
+    if fill:
+        yrange = [0, max(y.max() * 1.05, 0.001)]
+    else:
+        pad = (y.max() - y.min()) * 0.2 or max(abs(y.max()) * 0.02, 0.1)
+        yrange = [y.min() - pad, y.max() + pad]
+
     fig.update_layout(
-        height=900 if not interactive else 1000,
+        height=300,
+        margin=dict(l=4, r=8, t=8, b=8),
         showlegend=False,
-        hovermode="x unified",
-        margin=dict(t=60, b=20, l=10, r=10),
-        # ปิดการลาก/ซูมด้วยนิ้ว เพื่อให้เลื่อนหน้าจอได้ตามปกติ
-        dragmode="zoom" if interactive else False,
+        hovermode="x",
+        dragmode=False,  # ไม่ให้นิ้วลากซูมกราฟ เลื่อนหน้าจอได้ปกติ
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(size=11),
     )
-    if interactive:
-        fig.update_xaxes(rangeslider_visible=True, row=4, col=1)
+    fig.update_xaxes(showgrid=False, tickformat=tick_fmt, nticks=5, fixedrange=True)
+    fig.update_yaxes(
+        range=yrange, gridcolor="rgba(128,128,128,0.2)", zeroline=False,
+        automargin=True, fixedrange=True,
+    )
     return fig
 
 
-st.title("Electrical Power Monitoring Dashboard")
+def mini_cards(items):
+    cells = "".join(
+        f'<div class="mini"><div class="lbl">{label}</div><div class="val">{value}</div></div>'
+        for label, value in items
+    )
+    return f'<div class="grid g3">{cells}</div>'
 
+
+# ----------------------------- หน้าจอหลัก -----------------------------
 data, loaded, skipped = load_data(SPREADSHEET_ID, START_MONTH)
 
-with st.sidebar:
-    st.header("ตั้งค่า")
-    if st.button("รีเฟรชข้อมูล"):
-        st.cache_data.clear()
-        st.rerun()
-    st.caption("ข้อมูลอัปเดตอัตโนมัติทุก 5 นาที")
-    st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
-    if skipped:
-        st.write("**เดือนที่ข้าม:**", ", ".join(skipped))
+st.markdown('<p class="ttl">⚡ Power Monitor</p>', unsafe_allow_html=True)
 
 if data is None or data.empty:
     st.error(
@@ -130,37 +197,61 @@ if data is None or data.empty:
     )
     st.stop()
 
-# ตัวกรองช่วงวันที่
-min_d, max_d = data["Timestamp"].min().date(), data["Timestamp"].max().date()
-with st.sidebar:
-    date_range = st.date_input("ช่วงวันที่", (min_d, max_d), min_value=min_d, max_value=max_d)
-
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start, end = date_range
-    mask = (data["Timestamp"].dt.date >= start) & (data["Timestamp"].dt.date <= end)
-    data = data[mask]
-
-# ตัวเลขสรุป
 latest = data.iloc[-1]
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Voltage (V)", f"{latest.get('Voltage(V)', float('nan')):.1f}")
-c2.metric("Current (A)", f"{latest.get('Current(A)', float('nan')):.3f}")
-c3.metric("Power (W)", f"{latest.get('Power(W)', float('nan')):.1f}")
-c4.metric("Energy (kWh)", f"{latest.get('Energy (kWh)', float('nan')):.3f}")
-st.caption(f"ค่าล่าสุด ณ {latest['Timestamp']:%d/%m/%Y %H:%M:%S} — รวม {len(data):,} แถว")
-
-interactive = st.toggle(
-    "โหมดซูมกราฟ (ปิดไว้ถ้าต้องการเลื่อนหน้าจอบนมือถือ)", value=False
-)
-st.plotly_chart(
-    build_figure(data, interactive),
-    use_container_width=True,
-    config={
-        "scrollZoom": False,
-        "displayModeBar": interactive,
-        "doubleClick": "reset",
-    },
+st.markdown(
+    f'<p class="sub">อัปเดตล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}</p>',
+    unsafe_allow_html=True,
 )
 
-with st.expander("ดูตารางข้อมูล"):
-    st.dataframe(data, use_container_width=True)
+# การ์ดค่าล่าสุด 2x2
+cards = ""
+for col, label, _tab, unit, color, dec in METRICS:
+    v = latest[col] if col in data.columns else float("nan")
+    cards += (
+        f'<div class="card" style="--c:{color}"><div class="lbl">{label}</div>'
+        f'<div class="val">{fmt(v, dec)}<small>{unit}</small></div></div>'
+    )
+st.markdown(f'<div class="grid g2">{cards}</div>', unsafe_allow_html=True)
+
+# เลือกช่วงเวลา
+choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
+view = filter_range(data, choice)
+
+# แท็บกราฟ (1 แท็บ = 1 กราฟ)
+tabs = st.tabs([m[2] for m in METRICS])
+for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
+    with tab:
+        if col not in view.columns or view[col].dropna().empty:
+            st.info("ไม่มีข้อมูลในช่วงนี้")
+            continue
+        is_energy = col == "Energy (kWh)"
+        st.plotly_chart(
+            make_chart(view, col, color, unit, dec, fill=is_energy),
+            width="stretch",
+            config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
+        )
+        s = view[col].dropna()
+        if is_energy:
+            items = [
+                ("เริ่มช่วงนี้", f"{fmt(s.iloc[0], dec)} {unit}"),
+                ("ล่าสุด", f"{fmt(s.iloc[-1], dec)} {unit}"),
+                ("ใช้ไป", f"+{fmt(s.iloc[-1] - s.iloc[0], dec)} {unit}"),
+            ]
+        else:
+            items = [
+                ("ต่ำสุด", f"{fmt(s.min(), dec)} {unit}"),
+                ("เฉลี่ย", f"{fmt(s.mean(), dec)} {unit}"),
+                ("สูงสุด", f"{fmt(s.max(), dec)} {unit}"),
+            ]
+        st.markdown(mini_cards(items), unsafe_allow_html=True)
+
+# ส่วนเพิ่มเติม
+with st.expander("เพิ่มเติม"):
+    if st.button("รีเฟรชข้อมูล"):
+        st.cache_data.clear()
+        st.rerun()
+    st.caption("ข้อมูลอัปเดตอัตโนมัติทุก 5 นาที")
+    st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
+    if skipped:
+        st.write("**เดือนที่ข้าม:**", ", ".join(skipped))
+    st.dataframe(view.sort_values("Timestamp", ascending=False), width="stretch")

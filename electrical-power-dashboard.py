@@ -63,6 +63,18 @@ div[data-testid="stHorizontalBlock"]:has(.hdr) > div{min-width:0 !important;}
 div[data-testid="stHorizontalBlock"]:has(.hdr) > div:first-child{flex:1 1 auto !important;width:auto !important;}
 div[data-testid="stHorizontalBlock"]:has(.hdr) > div:last-child{flex:0 0 auto !important;width:auto !important;}
 div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.2rem .7rem;min-height:0;}
+@media (max-width:480px){
+.block-container{padding:3.6rem .75rem 2.5rem;}
+div[data-testid="stRadio"] div[role="radiogroup"]{display:grid !important;grid-template-columns:repeat(3,1fr);gap:4px 6px;}
+.grid{gap:8px;}
+.card{padding:8px 10px;}
+.card .val{font-size:1.4rem;}
+.mini{padding:6px 4px;}
+.mini .lbl{font-size:.64rem;}
+.mini .val{font-size:.85rem;white-space:nowrap;}
+div[data-testid="stTabs"] button{padding:4px 6px;}
+div[data-testid="stTabs"] button p{font-size:.82rem;}
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -194,7 +206,7 @@ def make_chart(df, col, color, unit, decimals, fill=False):
         yrange = [y.min() - pad, y.max() + pad]
 
     fig.update_layout(
-        height=300,
+        height=280,
         margin=dict(l=4, r=8, t=8, b=8),
         showlegend=False,
         hovermode="x",
@@ -244,8 +256,8 @@ def dashboard():
     if st.session_state.pop("just_refreshed", False):
         st.toast(f"รีเฟรชแล้ว · ข้อมูลล่าสุด {latest['Timestamp']:%H:%M:%S}", icon="✅")
     st.markdown(
-        f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}'
-        f' · โหลดเมื่อ {fetched_at:%H:%M:%S}</p>',
+        f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m %H:%M:%S}'
+        f' · โหลด {fetched_at:%H:%M:%S}</p>',
         unsafe_allow_html=True,
     )
 
@@ -314,7 +326,12 @@ def dashboard():
         st.write("**เดือนที่ดึงได้:**", ", ".join(loaded) if loaded else "-")
         if skipped:
             st.write("**เดือนที่ข้าม:**", ", ".join(skipped))
-        st.dataframe(view.sort_values("Timestamp", ascending=False), width="stretch")
+        if len(view) > 500:
+            st.caption(f"แสดง 500 แถวล่าสุด จากทั้งหมด {len(view):,} แถวในช่วงนี้")
+        st.dataframe(
+            view.sort_values("Timestamp", ascending=False).head(500),
+            width="stretch", hide_index=True,
+        )
 
 
 dashboard()

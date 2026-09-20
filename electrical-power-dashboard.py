@@ -30,7 +30,7 @@ METRICS = [
     ("Energy (kWh)", "พลังงานสะสม", "🔋 พลังงาน", "kWh", "#10B981", 3),
 ]
 
-RANGES = ["1 ชม.", "วันนี้", "7 วัน", "ทั้งหมด"]
+RANGES = ["1 ชม.", "วันนี้", "7 วัน", "30 วัน", "เลือกวันที่", "ทั้งหมด"]
 
 st.set_page_config(
     page_title="Power Monitor",
@@ -140,7 +140,7 @@ def hex_to_rgba(hex_color: str, alpha: float):
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def filter_range(data: pd.DataFrame, choice: str):
+def filter_range(data: pd.DataFrame, choice: str, custom=None):
     latest = data["Timestamp"].max()
     if choice == "1 ชม.":
         out = data[data["Timestamp"] >= latest - timedelta(hours=1)]
@@ -148,9 +148,29 @@ def filter_range(data: pd.DataFrame, choice: str):
         out = data[data["Timestamp"].dt.date == latest.date()]
     elif choice == "7 วัน":
         out = data[data["Timestamp"] >= latest - timedelta(days=7)]
+    elif choice == "30 วัน":
+        out = data[data["Timestamp"] >= latest - timedelta(days=30)]
+    elif choice == "เลือกวันที่" and custom:
+        d = data["Timestamp"].dt.date
+        out = data[(d >= custom[0]) & (d <= custom[1])]
     else:
         out = data
     return out if not out.empty else data
+
+
+def downsample(df: pd.DataFrame, max_points: int = 500):
+    """ถ้าจุดข้อมูลเยอะเกิน ให้เฉลี่ยเป็นช่วงเวลา (พลังงานสะสมใช้ค่าท้ายช่วง)
+    คืนค่า (dataframe, นาทีต่อจุด หรือ None ถ้าไม่ได้ย่อ)"""
+    if len(df) <= max_points:
+        return df, None
+    span = df["Timestamp"].max() - df["Timestamp"].min()
+    minutes = max(1, int(span.total_seconds() / 60 / max_points) + 1)
+    cols = [c for c, *_ in METRICS if c in df.columns]
+    grouped = df.set_index("Timestamp")[cols].resample(f"{minutes}min")
+    out = grouped.mean()
+    if "Energy (kWh)" in cols:
+        out["Energy (kWh)"] = grouped["Energy (kWh)"].last()
+    return out.dropna(how="all").reset_index(), minutes
 
 
 def make_chart(df, col, color, unit, decimals, fill=False):
@@ -241,7 +261,24 @@ def dashboard():
 
     # เลือกช่วงเวลา
     choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
-    view = filter_range(data, choice)
+    custom = None
+    if choice == "เลือกวันที่":
+        d_min, d_max = data["Timestamp"].min().date(), data["Timestamp"].max().date()
+        picked = st.date_input(
+            "เลือกช่วงวันที่", (d_min, d_max), min_value=d_min, max_value=d_max,
+            format="DD/MM/YYYY",
+        )
+        if isinstance(picked, (tuple, list)) and len(picked) == 2:
+            custom = (picked[0], picked[1])
+        else:
+            st.caption("เลือกวันสิ้นสุดอีกหนึ่งวัน")
+    view = filter_range(data, choice, custom)
+    plot_df, step_min = downsample(view)
+    if step_min:
+        st.caption(
+            f"ช่วงนี้มี {len(view):,} จุด กราฟแสดงค่าเฉลี่ยทุก {step_min} นาทีเพื่อความลื่น "
+            "ส่วนค่าต่ำสุด/เฉลี่ย/สูงสุดคำนวณจากข้อมูลจริงทั้งหมด"
+        )
 
     # แท็บกราฟ (1 แท็บ = 1 กราฟ)
     tabs = st.tabs([m[2] for m in METRICS])
@@ -252,7 +289,7 @@ def dashboard():
                 continue
             is_energy = col == "Energy (kWh)"
             st.plotly_chart(
-                make_chart(view, col, color, unit, dec, fill=is_energy),
+                make_chart(plot_df, col, color, unit, dec, fill=is_energy),
                 width="stretch",
                 config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
             )

@@ -7,7 +7,8 @@ electrical-power-dashboard.py - Electrical Power Monitor (Streamlit, mobile-firs
 """
 
 import io
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import pandas as pd
@@ -69,9 +70,16 @@ div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.2rem .7rem;min-he
 
 
 # ----------------------------- ดึงข้อมูล -----------------------------
+TH_TZ = timezone(timedelta(hours=7))
+
+
+def now_th():
+    return datetime.now(TH_TZ).replace(tzinfo=None)
+
+
 def get_month_list(start_month: str):
     cursor = datetime.strptime(start_month, "%Y-%m")
-    now = datetime.now()
+    now = now_th()
     months = []
     while cursor <= now:
         months.append(cursor.strftime("%Y-%m"))
@@ -82,10 +90,10 @@ def get_month_list(start_month: str):
 def fetch_sheet(spreadsheet_id: str, sheet_name: str):
     url = (
         f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
-        f"/gviz/tq?tqx=out:csv&sheet={quote(sheet_name)}"
+        f"/gviz/tq?tqx=out:csv&sheet={quote(sheet_name)}&_={int(time.time())}"
     )
     try:
-        r = requests.get(url, timeout=15)
+        r = requests.get(url, timeout=15, headers={"Cache-Control": "no-cache"})
     except requests.RequestException:
         return None
     if r.status_code != 200 or "html" in r.headers.get("Content-Type", ""):
@@ -110,14 +118,14 @@ def load_data(spreadsheet_id: str, start_month: str):
             frames.append(df)
             loaded.append(f"{month} ({len(df)} แถว)")
     if not frames:
-        return None, loaded, skipped
+        return None, loaded, skipped, now_th()
     data = pd.concat(frames, ignore_index=True)
     data["Timestamp"] = pd.to_datetime(data["Timestamp"], dayfirst=True, errors="coerce")
     for col, *_ in METRICS:
         if col in data.columns:
             data[col] = pd.to_numeric(data[col], errors="coerce")
     data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp")
-    return data, loaded, skipped
+    return data, loaded, skipped, now_th()
 
 
 # ----------------------------- ตัวช่วยแสดงผล -----------------------------
@@ -199,7 +207,7 @@ with h_right:
         st.cache_data.clear()
         st.rerun()
 
-data, loaded, skipped = load_data(SPREADSHEET_ID, START_MONTH)
+data, loaded, skipped, fetched_at = load_data(SPREADSHEET_ID, START_MONTH)
 
 if data is None or data.empty:
     st.error(
@@ -210,7 +218,8 @@ if data is None or data.empty:
 
 latest = data.iloc[-1]
 st.markdown(
-    f'<p class="sub">อัปเดตล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}</p>',
+    f'<p class="sub">ข้อมูลล่าสุด {latest["Timestamp"]:%d/%m/%Y %H:%M:%S}'
+    f' · โหลดเมื่อ {fetched_at:%H:%M:%S}</p>',
     unsafe_allow_html=True,
 )
 

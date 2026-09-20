@@ -73,7 +73,7 @@ def load_data(spreadsheet_id: str, start_month: str):
     return data, loaded, skipped
 
 
-def build_figure(data: pd.DataFrame):
+def build_figure(data: pd.DataFrame, interactive: bool = False):
     fig = make_subplots(
         rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.04,
         subplot_titles=(
@@ -96,9 +96,16 @@ def build_figure(data: pd.DataFrame):
                            line=dict(color=color), fill=fill),
                 row=i, col=1,
             )
-    fig.update_layout(height=1000, showlegend=False, hovermode="x unified",
-                      margin=dict(t=60, b=20))
-    fig.update_xaxes(rangeslider_visible=True, row=4, col=1)
+    fig.update_layout(
+        height=900 if not interactive else 1000,
+        showlegend=False,
+        hovermode="x unified",
+        margin=dict(t=60, b=20, l=10, r=10),
+        # ปิดการลาก/ซูมด้วยนิ้ว เพื่อให้เลื่อนหน้าจอได้ตามปกติ
+        dragmode="zoom" if interactive else False,
+    )
+    if interactive:
+        fig.update_xaxes(rangeslider_visible=True, row=4, col=1)
     return fig
 
 
@@ -142,7 +149,18 @@ c3.metric("Power (W)", f"{latest.get('Power(W)', float('nan')):.1f}")
 c4.metric("Energy (kWh)", f"{latest.get('Energy (kWh)', float('nan')):.3f}")
 st.caption(f"ค่าล่าสุด ณ {latest['Timestamp']:%d/%m/%Y %H:%M:%S} — รวม {len(data):,} แถว")
 
-st.plotly_chart(build_figure(data), use_container_width=True)
+interactive = st.toggle(
+    "โหมดซูมกราฟ (ปิดไว้ถ้าต้องการเลื่อนหน้าจอบนมือถือ)", value=False
+)
+st.plotly_chart(
+    build_figure(data, interactive),
+    use_container_width=True,
+    config={
+        "scrollZoom": False,
+        "displayModeBar": interactive,
+        "doubleClick": "reset",
+    },
+)
 
 with st.expander("ดูตารางข้อมูล"):
     st.dataframe(data, use_container_width=True)

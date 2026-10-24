@@ -20,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 # ===================== แก้ค่าตรงนี้ =====================
 SPREADSHEET_ID = "1tQpqS3BGkWxzOiRel8xqEu_O1A9Ej7KOjnSNmGUur60"  # เฉพาะ ID ไม่ใช่ URL เต็ม
 START_MONTH = "2026-09"  # เดือนแรกที่เริ่มเก็บข้อมูล (yyyy-MM)
-DEFAULT_RATE = 4.00      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
+DEFAULT_RATE = 4.52      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
 DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
 COST_COL = "Cost (฿)"
 COST_COLOR = "#F59E0B"

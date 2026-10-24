@@ -20,6 +20,10 @@ from dateutil.relativedelta import relativedelta
 # ===================== แก้ค่าตรงนี้ =====================
 SPREADSHEET_ID = "1tQpqS3BGkWxzOiRel8xqEu_O1A9Ej7KOjnSNmGUur60"  # เฉพาะ ID ไม่ใช่ URL เต็ม
 START_MONTH = "2026-09"  # เดือนแรกที่เริ่มเก็บข้อมูล (yyyy-MM)
+DEFAULT_RATE = 4.00      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
+DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
+COST_COL = "Cost (฿)"
+COST_COLOR = "#F59E0B"
 # =========================================================
 
 # (คอลัมน์ในชีต, ชื่อการ์ด, ชื่อแท็บ, หน่วย, สี, ทศนิยม)
@@ -176,6 +180,17 @@ def filter_range(data: pd.DataFrame, choice: str, custom=None):
     return out if not out.empty else data
 
 
+def add_cost(df: pd.DataFrame, rate: float, vat_pct: float):
+    """หน่วยที่ใช้ + ค่าไฟสะสมนับจากต้นช่วงที่เลือก
+    ใช้ส่วนต่างของ Energy และตัดค่าติดลบทิ้ง (กรณี PZEM ถูกรีเซ็ตค่า)"""
+    if "Energy (kWh)" not in df.columns:
+        return df
+    out = df.copy()
+    out["kWh_used"] = out["Energy (kWh)"].diff().clip(lower=0).fillna(0)
+    out[COST_COL] = out["kWh_used"].cumsum() * rate * (1 + vat_pct / 100)
+    return out
+
+
 def downsample(df: pd.DataFrame, max_points: int = 500):
     """ถ้าจุดข้อมูลเยอะเกิน ให้เฉลี่ยเป็นช่วงเวลา (พลังงานสะสมใช้ค่าท้ายช่วง)
     คืนค่า (dataframe, นาทีต่อจุด หรือ None ถ้าไม่ได้ย่อ)"""
@@ -184,10 +199,13 @@ def downsample(df: pd.DataFrame, max_points: int = 500):
     span = df["Timestamp"].max() - df["Timestamp"].min()
     minutes = max(1, int(span.total_seconds() / 60 / max_points) + 1)
     cols = [c for c, *_ in METRICS if c in df.columns]
+    if COST_COL in df.columns:
+        cols.append(COST_COL)
     grouped = df.set_index("Timestamp")[cols].resample(f"{minutes}min")
     out = grouped.mean()
-    if "Energy (kWh)" in cols:
-        out["Energy (kWh)"] = grouped["Energy (kWh)"].last()
+    for cum_col in ("Energy (kWh)", COST_COL):  # ค่าสะสมใช้ค่าท้ายช่วง
+        if cum_col in cols:
+            out[cum_col] = grouped[cum_col].last()
     return out.dropna(how="all").reset_index(), minutes
 
 
@@ -291,6 +309,9 @@ def dashboard():
         else:
             st.caption("เลือกวันสิ้นสุดอีกหนึ่งวัน")
     view = filter_range(data, choice, custom)
+    rate = st.session_state.get("rate", DEFAULT_RATE)
+    vat_pct = st.session_state.get("vat", DEFAULT_VAT)
+    view = add_cost(view, rate, vat_pct)
     plot_df, step_min = downsample(view)
     if step_min:
         st.caption(
@@ -299,7 +320,7 @@ def dashboard():
         )
 
     # แท็บกราฟ (1 แท็บ = 1 กราฟ)
-    tabs = st.tabs([m[2] for m in METRICS])
+    tabs = st.tabs([m[2] for m in METRICS] + ["💰 ค่าไฟ"])
     for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
         with tab:
             if col not in view.columns or view[col].dropna().empty:
@@ -325,6 +346,34 @@ def dashboard():
                     ("สูงสุด", f"{fmt(s.max(), dec)} {unit}"),
                 ]
             st.markdown(mini_cards(items), unsafe_allow_html=True)
+
+    # แท็บค่าไฟ (ต่อจากแท็บพลังงาน)
+    with tabs[-1]:
+        if COST_COL not in view.columns or view[COST_COL].dropna().empty:
+            st.info("ไม่มีข้อมูลในช่วงนี้")
+        else:
+            st.plotly_chart(
+                make_chart(plot_df, COST_COL, COST_COLOR, "฿", 2, fill=True),
+                width="stretch",
+                config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
+            )
+            st.markdown(
+                mini_cards([
+                    ("หน่วยที่ใช้", f"{fmt(view['kWh_used'].sum(), 3)} kWh"),
+                    ("ค่าไฟช่วงนี้", f"{fmt(view[COST_COL].iloc[-1], 2)} ฿"),
+                    ("อัตรารวม VAT", f"{fmt(rate * (1 + vat_pct / 100), 2)} ฿/หน่วย"),
+                ]),
+                unsafe_allow_html=True,
+            )
+        with st.expander("ตั้งค่าอัตราค่าไฟ"):
+            st.number_input("อัตรา (บาท/หน่วย)", min_value=0.0, value=DEFAULT_RATE,
+                            step=0.1, key="rate")
+            st.number_input("VAT (%)", min_value=0.0, value=DEFAULT_VAT,
+                            step=1.0, key="vat")
+            st.caption(
+                "ค่าประมาณจากอัตราเดียว ค่าไฟตามบิลจริงอาจต่างเพราะคิดแบบขั้นบันได "
+                "บวกค่า Ft และค่าบริการ"
+            )
 
     # ส่วนเพิ่มเติม
     with st.expander("เพิ่มเติม"):

@@ -475,8 +475,10 @@ def dashboard():
         )
 
     # แท็บกราฟ (1 แท็บ = 1 กราฟ)
-    tabs = st.tabs([m[2] for m in METRICS] + ["💰 ค่าไฟ"])
-    for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, METRICS):
+    # แท็บ "กำลัง" มาเป็นอันดับแรกเสมอ (การ์ดด้านบนยังเรียงตาม METRICS เดิม)
+    tab_metrics = [m for m in METRICS if m[0] == "Power(W)"] + [m for m in METRICS if m[0] != "Power(W)"]
+    tabs = st.tabs([m[2] for m in tab_metrics] + ["💰 ค่าไฟ"])
+    for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, tab_metrics):
         with tab:
             if col not in view.columns or view[col].dropna().empty:
                 st.info("ไม่มีข้อมูลในช่วงนี้")

@@ -24,8 +24,10 @@ DEFAULT_RATE = 4.52      # ค่าไฟ บาท/หน่วย ไม่�
 DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
 COST_COL = "Cost (฿)"
 COST_COLOR = "#F59E0B"
-PEAK_LINE_WIDTH = 1.5    # ความหนาเส้นพีค (เส้นค่าเฉลี่ยหนา 2.5) ปรับตรงนี้ได้
-PEAK_DOT_SIZE = 3.0        # ขนาดจุดบนเส้นพีค (แสดงเมื่อมีข้อมูลพีคไม่เกิน 40 จุด)
+# --- ปรับหน้าตาเส้นกราฟ ---
+AVG_LINE_WIDTH = 2.5     # ความหนาเส้นหลักของทุกกราฟ (แรงดัน กระแส กำลัง พลังงาน ค่าไฟ)
+PEAK_LINE_WIDTH = 1.5    # ความหนาเส้นพีค (เฉพาะกราฟกระแสและกำลัง)
+PEAK_DOT_SIZE = 3.0      # ขนาดจุดบนเส้นพีค (แสดงเมื่อมีข้อมูลพีคไม่เกิน 40 จุด ตั้ง 0 = ไม่มีจุด)
 # =========================================================
 
 # (คอลัมน์ในชีต, ชื่อการ์ด, ชื่อแท็บ, หน่วย, สี, ทศนิยม)
@@ -238,7 +240,7 @@ def make_chart(df, col, color, unit, decimals, fill=False, peak_col=None):
     fig = go.Figure(
         go.Scatter(
             x=df["Timestamp"], y=y, mode="lines",
-            line=dict(color=color, width=2.5),
+            line=dict(color=color, width=AVG_LINE_WIDTH),
             fill="tozeroy" if fill else None,
             fillcolor=hex_to_rgba(color, 0.25) if fill else None,
             hovertemplate=f"%{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",

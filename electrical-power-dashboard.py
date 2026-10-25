@@ -339,8 +339,20 @@ def sync_query_params():
     st.query_params.update(params)
 
 
+def safe_int(value, lo, hi, default):
+    """แปลงเป็น int ล้วน ๆ และอยู่ในช่วง lo..hi ถ้าไม่ได้ให้ใช้ค่า default (กัน error จากชนิดข้อมูลแปลก ๆ)"""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return default
+    return v if lo <= v <= hi else default
+
+
 def remember(name, widget_key):
-    st.session_state["saved"][name] = st.session_state[widget_key]
+    value = st.session_state[widget_key]
+    if name in ("today_start", "custom_start", "custom_end"):
+        value = safe_int(value, 0, 24, 0)
+    st.session_state["saved"][name] = value
     sync_query_params()
 
 
@@ -425,8 +437,9 @@ def dashboard():
     if choice == "วันนี้":
         with c_today:
             start_hour = st.selectbox(
-                "เริ่มตั้งแต่เวลา", list(range(24)), index=saved["today_start"],
-                format_func=lambda h: f"เริ่ม {h:02d}:00", key="w_today_start",
+                "เริ่มตั้งแต่เวลา", list(range(24)),
+                index=safe_int(saved["today_start"], 0, 23, 0),
+                format_func=lambda h: f"เริ่ม {int(h):02d}:00", key="w_today_start",
                 label_visibility="collapsed",
                 on_change=remember, args=("today_start", "w_today_start"),
             )
@@ -448,13 +461,15 @@ def dashboard():
         c_start, c_end = st.columns(2)
         with c_start:
             start_hour = st.selectbox(
-                "เริ่มเวลา (วันแรก)", list(range(24)), index=saved["custom_start"],
+                "เริ่มเวลา (วันแรก)", list(range(24)),
+                index=safe_int(saved["custom_start"], 0, 23, 0),
                 format_func=hour_label, key="w_custom_start",
                 on_change=remember, args=("custom_start", "w_custom_start"),
             )
         with c_end:
             end_hour = st.selectbox(
-                "ถึงเวลา (วันสุดท้าย)", list(range(1, 25)), index=saved["custom_end"] - 1,
+                "ถึงเวลา (วันสุดท้าย)", list(range(1, 25)),
+                index=safe_int(saved["custom_end"], 1, 24, 24) - 1,
                 format_func=lambda h: "24:00 (สิ้นวัน)" if h == 24 else hour_label(h),
                 key="w_custom_end",
                 on_change=remember, args=("custom_end", "w_custom_end"),

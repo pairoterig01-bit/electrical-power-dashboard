@@ -9,6 +9,7 @@ electrical-power-dashboard.py - Electrical Power Monitor (Streamlit, mobile-firs
 import io
 import time
 from datetime import datetime, timedelta, timezone
+from datetime import time as dtime
 from urllib.parse import quote
 
 import pandas as pd
@@ -182,22 +183,30 @@ def lighten(hex_color: str, amount: float = 0.45):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def filter_range(data: pd.DataFrame, choice: str, custom=None):
+def filter_range(data: pd.DataFrame, choice: str, custom=None, start_hour=0, end_hour=24):
+    """คืนค่า (ข้อมูลในช่วงที่เลือก, True ถ้าช่วงที่เลือกไม่มีข้อมูลจึงใช้ข้อมูลทั้งหมดแทน)
+    วันนี้: เริ่มที่ start_hour ของวันที่ตรงกับข้อมูลล่าสุด จนถึงข้อมูลล่าสุด
+    เลือกวันที่: เริ่ม start_hour ของวันเริ่มต้น จนถึง end_hour ของวันสิ้นสุด (24 = สิ้นวัน)"""
     latest = data["Timestamp"].max()
+    ts = data["Timestamp"]
     if choice == "1 ชม.":
         out = data[data["Timestamp"] >= latest - timedelta(hours=1)]
     elif choice == "วันนี้":
-        out = data[data["Timestamp"].dt.date == latest.date()]
+        start = datetime.combine(latest.date(), dtime(start_hour))
+        out = data[(ts >= start) & (ts.dt.date == latest.date())]
     elif choice == "7 วัน":
         out = data[data["Timestamp"] >= latest - timedelta(days=7)]
     elif choice == "30 วัน":
         out = data[data["Timestamp"] >= latest - timedelta(days=30)]
     elif choice == "เลือกวันที่" and custom:
-        d = data["Timestamp"].dt.date
-        out = data[(d >= custom[0]) & (d <= custom[1])]
+        start = datetime.combine(custom[0], dtime(start_hour))
+        end = datetime.combine(custom[1], dtime(0)) + timedelta(hours=end_hour)
+        out = data[(ts >= start) & (ts < end)]
     else:
         out = data
-    return out if not out.empty else data
+    if out.empty:
+        return data, True
+    return out, False
 
 
 def add_cost(df: pd.DataFrame, rate: float, vat_pct: float):
@@ -346,6 +355,15 @@ def dashboard():
     # เลือกช่วงเวลา
     choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
     custom = None
+    start_hour, end_hour = 0, 24
+    hour_label = lambda h: f"{h:02d}:00"
+    if choice == "วันนี้":
+        c_start, _ = st.columns(2)
+        with c_start:
+            start_hour = st.selectbox(
+                "เริ่มตั้งแต่เวลา", list(range(24)), index=0,
+                format_func=hour_label, key="today_start",
+            )
     if choice == "เลือกวันที่":
         d_min, d_max = data["Timestamp"].min().date(), data["Timestamp"].max().date()
         picked = st.date_input(
@@ -356,7 +374,26 @@ def dashboard():
             custom = (picked[0], picked[1])
         else:
             st.caption("เลือกวันสิ้นสุดอีกหนึ่งวัน")
-    view = filter_range(data, choice, custom)
+        c_start, c_end = st.columns(2)
+        with c_start:
+            start_hour = st.selectbox(
+                "เริ่มเวลา (วันแรก)", list(range(24)), index=0,
+                format_func=hour_label, key="custom_start",
+            )
+        with c_end:
+            end_hour = st.selectbox(
+                "ถึงเวลา (วันสุดท้าย)", list(range(1, 25)), index=23,
+                format_func=lambda h: "24:00 (สิ้นวัน)" if h == 24 else hour_label(h),
+                key="custom_end",
+            )
+    view, fell_back = filter_range(data, choice, custom, start_hour, end_hour)
+    if fell_back:
+        st.warning("ไม่มีข้อมูลในช่วงที่เลือก (ตรวจสอบเวลาเริ่ม/สิ้นสุด) จึงแสดงข้อมูลทั้งหมดแทน")
+    elif choice in ("วันนี้", "เลือกวันที่"):
+        st.caption(
+            f"ช่วงที่แสดง: {view['Timestamp'].min():%d/%m %H:%M} – "
+            f"{view['Timestamp'].max():%d/%m %H:%M} · {len(view):,} จุด"
+        )
     rate = st.session_state.get("rate", DEFAULT_RATE)
     vat_pct = st.session_state.get("vat", DEFAULT_VAT)
     view = add_cost(view, rate, vat_pct)

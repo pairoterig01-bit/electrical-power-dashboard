@@ -411,20 +411,23 @@ def dashboard():
     # เลือกช่วงเวลา (จำค่าที่เลือกไว้ ทั้งตอนสลับตัวเลือกและตอนโหลดหน้าซ้ำ)
     init_saved()
     saved = st.session_state["saved"]
-    choice = st.radio(
-        "ช่วงเวลา", RANGES, index=RANGES.index(saved["range"]), horizontal=True,
-        label_visibility="collapsed", key="w_range",
-        on_change=remember, args=("range", "w_range"),
-    )
     custom = None
     start_hour, end_hour = 0, 24
     hour_label = lambda h: f"{h:02d}:00"
+    # ตัวเลือกช่วงเวลาอยู่ซ้าย ช่อง "เริ่มเวลา" (เฉพาะโหมดวันนี้) อยู่ขวาในแถวเดียวกัน
+    c_radio, c_today = st.columns([2.4, 1], vertical_alignment="center")
+    with c_radio:
+        choice = st.radio(
+            "ช่วงเวลา", RANGES, index=RANGES.index(saved["range"]), horizontal=True,
+            label_visibility="collapsed", key="w_range",
+            on_change=remember, args=("range", "w_range"),
+        )
     if choice == "วันนี้":
-        c_start, _ = st.columns(2)
-        with c_start:
+        with c_today:
             start_hour = st.selectbox(
                 "เริ่มตั้งแต่เวลา", list(range(24)), index=saved["today_start"],
-                format_func=hour_label, key="w_today_start",
+                format_func=lambda h: f"เริ่ม {h:02d}:00", key="w_today_start",
+                label_visibility="collapsed",
                 on_change=remember, args=("today_start", "w_today_start"),
             )
     if choice == "เลือกวันที่":

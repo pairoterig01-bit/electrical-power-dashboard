@@ -20,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 # ===================== แก้ค่าตรงนี้ =====================
 SPREADSHEET_ID = "1tQpqS3BGkWxzOiRel8xqEu_O1A9Ej7KOjnSNmGUur60"  # เฉพาะ ID ไม่ใช่ URL เต็ม
 START_MONTH = "2026-09"  # เดือนแรกที่เริ่มเก็บข้อมูล (yyyy-MM)
-DEFAULT_RATE = 4.00      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
+DEFAULT_RATE = 4.52      # ค่าไฟ บาท/หน่วย ไม่รวม VAT (4.3583 + Ft 0.1623 ตามบิล 10/2569) ปรับได้ในแท็บ "ค่าไฟ"
 DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
 COST_COL = "Cost (฿)"
 COST_COLOR = "#F59E0B"
@@ -388,14 +388,14 @@ def dashboard():
             st.info("ไม่มีข้อมูลในช่วงนี้")
         else:
             st.plotly_chart(
-                make_chart(plot_df, COST_COL, COST_COLOR, "฿", 2, fill=True),
+                make_chart(plot_df, COST_COL, COST_COLOR, "฿", 1, fill=True),
                 width="stretch",
                 config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
             )
             st.markdown(
                 mini_cards([
                     ("หน่วยที่ใช้", f"{fmt(view['kWh_used'].sum(), 3)} kWh"),
-                    ("ค่าไฟช่วงนี้", f"{fmt(view[COST_COL].iloc[-1], 2)} ฿"),
+                    ("ค่าไฟช่วงนี้", f"{fmt(view[COST_COL].iloc[-1], 1)} ฿"),
                     ("อัตรารวม VAT", f"{fmt(rate * (1 + vat_pct / 100), 2)} ฿/หน่วย"),
                 ]),
                 unsafe_allow_html=True,
@@ -421,6 +421,7 @@ def dashboard():
         st.dataframe(
             view.sort_values("Timestamp", ascending=False).head(500),
             width="stretch", hide_index=True,
+            column_config={COST_COL: st.column_config.NumberColumn(COST_COL, format="%.1f")},
         )
 
 

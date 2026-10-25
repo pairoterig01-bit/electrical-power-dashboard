@@ -295,6 +295,62 @@ def make_chart(df, col, color, unit, decimals, fill=False, peak_col=None):
     return fig
 
 
+# ----------------------------- จำค่าที่เลือกไว้ -----------------------------
+# เก็บใน session_state (ไม่หายตอนสลับตัวเลือก/รีเฟรชอัตโนมัติ) และเขียนลง URL ด้วย
+# เพื่อให้เบราว์เซอร์จำค่าไว้เมื่อโหลดหน้าซ้ำ (เช่น สลับแอปไปมาแล้วหน้าถูกโหลดใหม่)
+def init_saved():
+    if "saved" in st.session_state:
+        return
+    qp = st.query_params
+
+    def to_int(key, lo, hi, default):
+        try:
+            v = int(qp.get(key))
+            return v if lo <= v <= hi else default
+        except (TypeError, ValueError):
+            return default
+
+    saved = {
+        "range": RANGES[to_int("r", 0, len(RANGES) - 1, 1)],
+        "today_start": to_int("ts", 0, 23, 0),
+        "custom_start": to_int("cs", 0, 23, 0),
+        "custom_end": to_int("ce", 1, 24, 24),
+        "d1": None,
+        "d2": None,
+    }
+    try:
+        saved["d1"] = datetime.strptime(qp.get("d1"), "%Y-%m-%d").date()
+        saved["d2"] = datetime.strptime(qp.get("d2"), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        saved["d1"] = saved["d2"] = None
+    st.session_state["saved"] = saved
+
+
+def sync_query_params():
+    sv = st.session_state["saved"]
+    params = {
+        "r": str(RANGES.index(sv["range"])),
+        "ts": str(sv["today_start"]),
+        "cs": str(sv["custom_start"]),
+        "ce": str(sv["custom_end"]),
+    }
+    if sv["d1"] and sv["d2"]:
+        params["d1"], params["d2"] = sv["d1"].isoformat(), sv["d2"].isoformat()
+    st.query_params.update(params)
+
+
+def remember(name, widget_key):
+    st.session_state["saved"][name] = st.session_state[widget_key]
+    sync_query_params()
+
+
+def remember_dates():
+    v = st.session_state.get("w_dates")
+    if isinstance(v, (tuple, list)) and len(v) == 2:  # เลือกครบทั้งวันเริ่มและวันสิ้นสุดแล้ว
+        st.session_state["saved"]["d1"], st.session_state["saved"]["d2"] = v
+        sync_query_params()
+
+
 def mini_cards(items):
     cells = "".join(
         f'<div class="mini"><div class="lbl">{label}</div><div class="val">{value}</div></div>'
@@ -352,8 +408,14 @@ def dashboard():
         )
     st.markdown(f'<div class="grid g2">{cards}</div>', unsafe_allow_html=True)
 
-    # เลือกช่วงเวลา
-    choice = st.radio("ช่วงเวลา", RANGES, index=1, horizontal=True, label_visibility="collapsed")
+    # เลือกช่วงเวลา (จำค่าที่เลือกไว้ ทั้งตอนสลับตัวเลือกและตอนโหลดหน้าซ้ำ)
+    init_saved()
+    saved = st.session_state["saved"]
+    choice = st.radio(
+        "ช่วงเวลา", RANGES, index=RANGES.index(saved["range"]), horizontal=True,
+        label_visibility="collapsed", key="w_range",
+        on_change=remember, args=("range", "w_range"),
+    )
     custom = None
     start_hour, end_hour = 0, 24
     hour_label = lambda h: f"{h:02d}:00"
@@ -361,14 +423,20 @@ def dashboard():
         c_start, _ = st.columns(2)
         with c_start:
             start_hour = st.selectbox(
-                "เริ่มตั้งแต่เวลา", list(range(24)), index=0,
-                format_func=hour_label, key="today_start",
+                "เริ่มตั้งแต่เวลา", list(range(24)), index=saved["today_start"],
+                format_func=hour_label, key="w_today_start",
+                on_change=remember, args=("today_start", "w_today_start"),
             )
     if choice == "เลือกวันที่":
         d_min, d_max = data["Timestamp"].min().date(), data["Timestamp"].max().date()
+        d1, d2 = saved["d1"], saved["d2"]
+        if d1 and d2:  # ปรับให้อยู่ในช่วงที่มีข้อมูลจริง
+            d1, d2 = max(d1, d_min), min(d2, d_max)
+        if not (d1 and d2 and d1 <= d2):
+            d1, d2 = d_min, d_max
         picked = st.date_input(
-            "เลือกช่วงวันที่", (d_min, d_max), min_value=d_min, max_value=d_max,
-            format="DD/MM/YYYY",
+            "เลือกช่วงวันที่", (d1, d2), min_value=d_min, max_value=d_max,
+            format="DD/MM/YYYY", key="w_dates", on_change=remember_dates,
         )
         if isinstance(picked, (tuple, list)) and len(picked) == 2:
             custom = (picked[0], picked[1])
@@ -377,14 +445,16 @@ def dashboard():
         c_start, c_end = st.columns(2)
         with c_start:
             start_hour = st.selectbox(
-                "เริ่มเวลา (วันแรก)", list(range(24)), index=0,
-                format_func=hour_label, key="custom_start",
+                "เริ่มเวลา (วันแรก)", list(range(24)), index=saved["custom_start"],
+                format_func=hour_label, key="w_custom_start",
+                on_change=remember, args=("custom_start", "w_custom_start"),
             )
         with c_end:
             end_hour = st.selectbox(
-                "ถึงเวลา (วันสุดท้าย)", list(range(1, 25)), index=23,
+                "ถึงเวลา (วันสุดท้าย)", list(range(1, 25)), index=saved["custom_end"] - 1,
                 format_func=lambda h: "24:00 (สิ้นวัน)" if h == 24 else hour_label(h),
-                key="custom_end",
+                key="w_custom_end",
+                on_change=remember, args=("custom_end", "w_custom_end"),
             )
     view, fell_back = filter_range(data, choice, custom, start_hour, end_hour)
     if fell_back:

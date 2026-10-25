@@ -165,6 +165,14 @@ def hex_to_rgba(hex_color: str, alpha: float):
     return f"rgba({r},{g},{b},{alpha})"
 
 
+def lighten(hex_color: str, amount: float = 0.45):
+    """ผสมสีกับสีขาว ให้เส้นพีคสว่างและแยกจากเส้นค่าเฉลี่ยได้ชัดบนพื้นมืด"""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def filter_range(data: pd.DataFrame, choice: str, custom=None):
     latest = data["Timestamp"].max()
     if choice == "1 ชม.":
@@ -230,11 +238,15 @@ def make_chart(df, col, color, unit, decimals, fill=False, peak_col=None):
         )
     )
     has_peak = peak_col is not None and peak_col in df.columns and df[peak_col].notna().any()
-    if has_peak:  # เส้นประ = ค่าสูงสุดในแต่ละรอบ
+    if has_peak:  # เส้นประสีอ่อน = ค่าสูงสุดในแต่ละรอบ
+        peak_color = lighten(color)
+        few = int(df[peak_col].notna().sum()) <= 40  # ข้อมูลน้อย ใส่จุดกลมให้เห็นชัด
         fig.add_trace(
             go.Scatter(
-                x=df["Timestamp"], y=df[peak_col], mode="lines",
-                line=dict(color=hex_to_rgba(color, 0.65), width=1.5, dash="dot"),
+                x=df["Timestamp"], y=df[peak_col],
+                mode="lines+markers" if few else "lines",
+                line=dict(color=peak_color, width=2.5, dash="dash"),
+                marker=dict(size=7, color=peak_color),
                 hovertemplate=f"พีค %{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",
             )
         )
@@ -351,7 +363,7 @@ def dashboard():
                 config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
             )
             if has_peak:
-                st.caption("เส้นทึบ = ค่าเฉลี่ย · เส้นประ = ค่าสูงสุดที่อ่านได้ในแต่ละช่วงเวลา")
+                st.caption("เส้นทึบ = ค่าเฉลี่ย · เส้นประสีอ่อน = ค่าสูงสุดที่อ่านได้ในแต่ละช่วงเวลา")
             s = view[col].dropna()
             if is_energy:
                 items = [

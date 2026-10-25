@@ -57,7 +57,10 @@ header[data-testid="stHeader"]{background:transparent;}
 .grid{display:grid;gap:10px;margin-bottom:10px;}
 .g2{grid-template-columns:1fr 1fr;}
 .g3{grid-template-columns:1fr 1fr 1fr;}
-.card{background:rgba(128,128,128,.10);border-radius:14px;padding:10px 14px;border-left:4px solid var(--c);}
+.card{background:rgba(128,128,128,.10);border-radius:14px;padding:10px 14px;border-left:4px solid var(--c);display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;column-gap:8px;}
+.card .pk{margin-left:auto;text-align:right;line-height:1.2;padding-bottom:4px;}
+.card .pk .pl{font-size:.68rem;opacity:.7;}
+.card .pk .pv{font-size:.95rem;font-weight:600;color:var(--pc);white-space:nowrap;}
 .card .lbl{font-size:.72rem;opacity:.7;}
 .card .val{font-size:1.65rem;font-weight:700;line-height:1.25;}
 .card .val small{font-size:.8rem;font-weight:500;opacity:.7;margin-left:3px;}
@@ -79,6 +82,8 @@ div[data-testid="stHorizontalBlock"]:has(.hdr) button{padding:.2rem .7rem;min-he
 .card .lbl{font-size:.9rem;}
 .card .val{font-size:2.1rem;}
 .card .val small{font-size:1rem;}
+.card .pk .pl{font-size:.8rem;}
+.card .pk .pv{font-size:1.05rem;}
 .mini{padding:10px 4px;}
 .mini .lbl{font-size:.8rem;}
 .mini .val{font-size:1.05rem;white-space:nowrap;}
@@ -317,9 +322,18 @@ def dashboard():
     cards = ""
     for col, label, _tab, unit, color, dec in METRICS:
         v = latest[col] if col in data.columns else float("nan")
+        peak_html = ""
+        pcol = PEAK_COLS.get(col)
+        if pcol and pcol in data.columns and pd.notna(latest[pcol]):  # ค่าพีคของรอบล่าสุด
+            peak_html = (
+                f'<div class="pk" title="ค่าสูงสุดในรอบ 5 นาทีล่าสุด">'
+                f'<div class="pl">พีค</div>'
+                f'<div class="pv">{fmt(latest[pcol], dec)} {unit}</div></div>'
+            )
         cards += (
-            f'<div class="card" style="--c:{color}"><div class="lbl">{label}</div>'
-            f'<div class="val">{fmt(v, dec)}<small>{unit}</small></div></div>'
+            f'<div class="card" style="--c:{color};--pc:{lighten(color)}">'
+            f'<div class="cl"><div class="lbl">{label}</div>'
+            f'<div class="val">{fmt(v, dec)}<small>{unit}</small></div></div>{peak_html}</div>'
         )
     st.markdown(f'<div class="grid g2">{cards}</div>', unsafe_allow_html=True)
 

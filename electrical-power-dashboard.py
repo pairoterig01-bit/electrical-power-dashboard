@@ -20,7 +20,7 @@ from dateutil.relativedelta import relativedelta
 # ===================== แก้ค่าตรงนี้ =====================
 SPREADSHEET_ID = "1tQpqS3BGkWxzOiRel8xqEu_O1A9Ej7KOjnSNmGUur60"  # เฉพาะ ID ไม่ใช่ URL เต็ม
 START_MONTH = "2026-09"  # เดือนแรกที่เริ่มเก็บข้อมูล (yyyy-MM)
-DEFAULT_RATE = 4.52      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
+DEFAULT_RATE = 4.00      # ค่าไฟ บาท/หน่วย (ปรับได้ในแท็บ "ค่าไฟ" ใส่ตามบิลของคุณ)
 DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
 COST_COL = "Cost (฿)"
 COST_COLOR = "#F59E0B"
@@ -33,6 +33,9 @@ METRICS = [
     ("Power(W)", "กำลังไฟ", "🔥 กำลัง", "W", "#EF4444", 1),
     ("Energy (kWh)", "พลังงานสะสม", "🔋 พลังงาน", "kWh", "#10B981", 3),
 ]
+
+# คอลัมน์ "ค่าสูงสุดต่อรอบ" ที่ ESP ส่งมาพร้อมค่าเฉลี่ย (แถวเก่าที่ไม่มีจะเว้นว่าง)
+PEAK_COLS = {"Current(A)": "Peak Current(A)", "Power(W)": "Peak Power(W)"}
 
 RANGES = ["1 ชม.", "วันนี้", "7 วัน", "30 วัน", "เลือกวันที่", "ทั้งหมด"]
 
@@ -143,7 +146,7 @@ def load_data(spreadsheet_id: str, start_month: str):
         return None, loaded, skipped, now_th()
     data = pd.concat(frames, ignore_index=True)
     data["Timestamp"] = pd.to_datetime(data["Timestamp"], dayfirst=True, errors="coerce")
-    for col, *_ in METRICS:
+    for col in [m[0] for m in METRICS] + list(PEAK_COLS.values()):
         if col in data.columns:
             data[col] = pd.to_numeric(data[col], errors="coerce")
     data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp")
@@ -201,15 +204,18 @@ def downsample(df: pd.DataFrame, max_points: int = 500):
     cols = [c for c, *_ in METRICS if c in df.columns]
     if COST_COL in df.columns:
         cols.append(COST_COL)
-    grouped = df.set_index("Timestamp")[cols].resample(f"{minutes}min")
+    peak_cols = [p for p in PEAK_COLS.values() if p in df.columns]
+    grouped = df.set_index("Timestamp")[cols + peak_cols].resample(f"{minutes}min")
     out = grouped.mean()
+    for p in peak_cols:  # ค่าพีคใช้ค่าสูงสุดของช่วง ไม่ใช่ค่าเฉลี่ย
+        out[p] = grouped[p].max()
     for cum_col in ("Energy (kWh)", COST_COL):  # ค่าสะสมใช้ค่าท้ายช่วง
         if cum_col in cols:
             out[cum_col] = grouped[cum_col].last()
     return out.dropna(how="all").reset_index(), minutes
 
 
-def make_chart(df, col, color, unit, decimals, fill=False):
+def make_chart(df, col, color, unit, decimals, fill=False, peak_col=None):
     y = df[col]
     span = df["Timestamp"].max() - df["Timestamp"].min()
     tick_fmt = "%H:%M" if span <= timedelta(days=2) else "%d/%m"
@@ -223,11 +229,21 @@ def make_chart(df, col, color, unit, decimals, fill=False):
             hovertemplate=f"%{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",
         )
     )
+    has_peak = peak_col is not None and peak_col in df.columns and df[peak_col].notna().any()
+    if has_peak:  # เส้นประ = ค่าสูงสุดในแต่ละรอบ
+        fig.add_trace(
+            go.Scatter(
+                x=df["Timestamp"], y=df[peak_col], mode="lines",
+                line=dict(color=hex_to_rgba(color, 0.65), width=1.5, dash="dot"),
+                hovertemplate=f"พีค %{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",
+            )
+        )
+    top = max(y.max(), df[peak_col].max()) if has_peak else y.max()
     if fill:
-        yrange = [0, max(y.max() * 1.05, 0.001)]
+        yrange = [0, max(top * 1.05, 0.001)]
     else:
-        pad = (y.max() - y.min()) * 0.2 or max(abs(y.max()) * 0.02, 0.1)
-        yrange = [y.min() - pad, y.max() + pad]
+        pad = (top - y.min()) * 0.2 or max(abs(top) * 0.02, 0.1)
+        yrange = [y.min() - pad, top + pad]
 
     fig.update_layout(
         height=340,
@@ -327,11 +343,15 @@ def dashboard():
                 st.info("ไม่มีข้อมูลในช่วงนี้")
                 continue
             is_energy = col == "Energy (kWh)"
+            peak_col = PEAK_COLS.get(col)
+            has_peak = peak_col in view.columns and view[peak_col].notna().any()
             st.plotly_chart(
-                make_chart(plot_df, col, color, unit, dec, fill=is_energy),
+                make_chart(plot_df, col, color, unit, dec, fill=is_energy, peak_col=peak_col),
                 width="stretch",
                 config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
             )
+            if has_peak:
+                st.caption("เส้นทึบ = ค่าเฉลี่ย · เส้นประ = ค่าสูงสุดที่อ่านได้ในแต่ละช่วงเวลา")
             s = view[col].dropna()
             if is_energy:
                 items = [
@@ -340,10 +360,13 @@ def dashboard():
                     ("ใช้ไป", f"+{fmt(s.iloc[-1] - s.iloc[0], dec)} {unit}"),
                 ]
             else:
+                top, top_label = s.max(), "สูงสุด"
+                if has_peak:  # มีค่าพีคจริง ใช้ค่านี้แทนค่าสูงสุดของค่าเฉลี่ย
+                    top, top_label = max(top, view[peak_col].max()), "พีคสูงสุด"
                 items = [
                     ("ต่ำสุด", f"{fmt(s.min(), dec)} {unit}"),
                     ("เฉลี่ย", f"{fmt(s.mean(), dec)} {unit}"),
-                    ("สูงสุด", f"{fmt(s.max(), dec)} {unit}"),
+                    (top_label, f"{fmt(top, dec)} {unit}"),
                 ]
             st.markdown(mini_cards(items), unsafe_allow_html=True)
 

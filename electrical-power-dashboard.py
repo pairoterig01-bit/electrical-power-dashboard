@@ -24,6 +24,8 @@ DEFAULT_RATE = 4.52      # ค่าไฟ บาท/หน่วย ไม่�
 DEFAULT_VAT = 7.0        # VAT % (ใส่ 0 ถ้าไม่ต้องการรวม)
 COST_COL = "Cost (฿)"
 COST_COLOR = "#F59E0B"
+PEAK_LINE_WIDTH = 2.5    # ความหนาเส้นพีค (เส้นค่าเฉลี่ยหนา 2.5) ปรับตรงนี้ได้
+PEAK_DOT_SIZE = 3.0        # ขนาดจุดบนเส้นพีค (แสดงเมื่อมีข้อมูลพีคไม่เกิน 40 จุด)
 # =========================================================
 
 # (คอลัมน์ในชีต, ชื่อการ์ด, ชื่อแท็บ, หน่วย, สี, ทศนิยม)
@@ -243,18 +245,20 @@ def make_chart(df, col, color, unit, decimals, fill=False, peak_col=None):
         )
     )
     has_peak = peak_col is not None and peak_col in df.columns and df[peak_col].notna().any()
-    if has_peak:  # เส้นประสีอ่อน = ค่าสูงสุดในแต่ละรอบ
+    if has_peak:  # เส้นสีอ่อน = ค่าสูงสุดในแต่ละรอบ
         peak_color = lighten(color)
         few = int(df[peak_col].notna().sum()) <= 40  # ข้อมูลน้อย ใส่จุดกลมให้เห็นชัด
         fig.add_trace(
             go.Scatter(
                 x=df["Timestamp"], y=df[peak_col],
                 mode="lines+markers" if few else "lines",
-                line=dict(color=peak_color, width=2.5, dash="dash"),
-                marker=dict(size=7, color=peak_color),
+                line=dict(color=peak_color, width=PEAK_LINE_WIDTH),
+                marker=dict(size=PEAK_DOT_SIZE, color=peak_color),
                 hovertemplate=f"พีค %{{y:.{decimals}f}} {unit}<br>%{{x|%d/%m %H:%M}}<extra></extra>",
             )
         )
+    if has_peak:  # วาดเส้นพีคก่อน ให้เส้นค่าเฉลี่ยอยู่ด้านบนและไม่ถูกบัง
+        fig.data = (fig.data[1], fig.data[0])
     top = max(y.max(), df[peak_col].max()) if has_peak else y.max()
     if fill:
         yrange = [0, max(top * 1.05, 0.001)]
@@ -377,7 +381,7 @@ def dashboard():
                 config={"displayModeBar": False, "scrollZoom": False, "doubleClick": False},
             )
             if has_peak:
-                st.caption("เส้นทึบ = ค่าเฉลี่ย · เส้นประสีอ่อน = ค่าสูงสุดที่อ่านได้ในแต่ละช่วงเวลา")
+                st.caption("เส้นสีเข้ม = ค่าเฉลี่ย · เส้นสีอ่อน = ค่าสูงสุดที่อ่านได้ในแต่ละช่วงเวลา")
             s = view[col].dropna()
             if is_energy:
                 items = [

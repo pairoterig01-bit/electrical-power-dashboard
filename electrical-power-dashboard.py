@@ -475,8 +475,9 @@ def dashboard():
         )
 
     # แท็บกราฟ (1 แท็บ = 1 กราฟ)
-    # แท็บ "กำลัง" มาเป็นอันดับแรกเสมอ (การ์ดด้านบนยังเรียงตาม METRICS เดิม)
-    tab_metrics = [m for m in METRICS if m[0] == "Power(W)"] + [m for m in METRICS if m[0] != "Power(W)"]
+    # ลำดับแท็บ: กำลัง → กระแส → แรงดัน → พลังงาน (ค่าไฟต่อท้าย) การ์ดด้านบนยังเรียงตาม METRICS เดิม
+    TAB_ORDER = ["Power(W)", "Current(A)", "Voltage(V)", "Energy (kWh)"]
+    tab_metrics = sorted(METRICS, key=lambda m: TAB_ORDER.index(m[0]))
     tabs = st.tabs([m[2] for m in tab_metrics] + ["💰 ค่าไฟ"])
     for tab, (col, _label, _tab, unit, color, dec) in zip(tabs, tab_metrics):
         with tab:
